@@ -3,11 +3,9 @@
 	"version": "0.0.2",
 	"main": "index.ts",
 	"scripts": {
-		"start": "ts-node -r tsconfig-paths/register src/app/index.ts",
+		"start": "tsx src/app/index.ts",
 		"lint": "eslint .",
-		"debug": "node --max-old-space-size=2048 --expose-gc --inspect -r tsconfig-paths/register -r ts-node/register src/app/index.ts",
-		"dexDebug": "dexnode -r tsconfig-paths/register -r ts-node/register src/app/index.ts",
-		"test": "ts-node -r tsconfig-paths/register src/test/index.ts"
+		"test": "tsx src/test/index.ts"
 	},
 	"engines": {
 		"node": ">=16.0.0"
@@ -22,10 +20,9 @@
 		"dotenv": "^16.5.0",
 		"mopo-discordjs": "^0.1.6",
 		"nodejs-whisper": "^0.2.9",
-		"path": "^0.12.7",
 		"prism-media": "^1.3.5",
 		"shelljs": "^0.10.0",
-		"ts-node": "^10.9.2",
+		"tsx": "^4.20.4",
 		"typescript": "^5.8.3"
 	},
 	"devDependencies": {
@@ -38,7 +35,6 @@
 		"eslint-plugin-prettier": "^5.4.0",
 		"eslint-plugin-simple-import-sort": "^12.1.1",
 		"prettier": "^3.5.3",
-		"tsconfig-paths": "^4.2.0",
 		"typescript-eslint": "^8.33.0"
 	}
 }
