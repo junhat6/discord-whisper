@@ -9,7 +9,7 @@ import {
 import crypto from 'crypto'
 import { AttachmentBuilder, Channel, VoiceState, Webhook } from 'discord.js'
 import fs from 'fs'
-import { BaseModule } from 'mopo-discordjs'
+import { BaseModule } from '@/lib/mopo-discordjs'
 import { IOptions, nodewhisper } from 'nodejs-whisper'
 import path from 'path'
 import prism from 'prism-media'

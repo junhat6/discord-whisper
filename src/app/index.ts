@@ -5,7 +5,7 @@ import {
   GatewayIntentBits,
   HTTPError,
 } from 'discord.js'
-import { ModuleManager } from 'mopo-discordjs'
+import { ModuleManager } from '@/lib/mopo-discordjs'
 import path from 'path'
 
 import { env } from '@/utils/env'

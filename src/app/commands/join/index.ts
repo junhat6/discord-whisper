@@ -5,7 +5,7 @@ import {
 } from '@discordjs/voice'
 import { ApplicationCommandOptionType, PermissionFlagsBits } from 'discord.js'
 import { ChatInputCommandInteraction } from 'discord.js'
-import { ApplicationCommandData } from 'mopo-discordjs'
+import { ApplicationCommandData } from '@/lib/mopo-discordjs'
 
 import Transcription from '@/app/modules/transcription'
 
