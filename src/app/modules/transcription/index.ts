@@ -7,20 +7,27 @@ import {
   VoiceConnectionStatus,
 } from '@discordjs/voice'
 import crypto from 'crypto'
-import { AttachmentBuilder, Channel, VoiceState, Webhook } from 'discord.js'
+import {
+  AttachmentBuilder,
+  Channel,
+  TextChannel,
+  VoiceState,
+  Webhook,
+} from 'discord.js'
 import fs from 'fs'
-import { BaseModule } from '@/lib/mopo-discordjs'
 import { IOptions, nodewhisper } from 'nodejs-whisper'
 import path from 'path'
 import prism from 'prism-media'
 import shell from 'shelljs'
 import { pipeline } from 'stream/promises'
 
+import { BaseModule } from '@/lib/mopo-discordjs'
 import { ModelName } from '@/types/ModelName'
 export interface TranscriptionOption {
   sendRealtimeMessage: boolean
   exportReport: boolean
   exportAudio: boolean
+  sendChannelId?: string
 }
 
 interface GuildSession {
@@ -53,6 +60,15 @@ export default class Transcription extends BaseModule {
     '../', // src
     '../', // project root
     'temp',
+  )
+
+  private static readonly OUTPUT_DIR = path.resolve(
+    __dirname, // transcription
+    '../', // modules
+    '../', // app
+    '../', // src
+    '../', // project root
+    'output',
   )
 
   private static readonly AFTER_SILENCE_DURATION = 800 // ms
@@ -89,6 +105,22 @@ export default class Transcription extends BaseModule {
   private static ensureGuildTempDir(guildId: string): void {
     const guildDir = Transcription.getGuildTempDir(guildId)
     if (!fs.existsSync(guildDir)) fs.mkdirSync(guildDir, { recursive: true })
+  }
+
+  private static saveReportToOutput(
+    report: string,
+    sessionStartTime: number,
+  ): void {
+    if (!fs.existsSync(Transcription.OUTPUT_DIR))
+      fs.mkdirSync(Transcription.OUTPUT_DIR, { recursive: true })
+
+    const date = new Date(sessionStartTime)
+    const timestamp = date
+      .toLocaleString('sv-SE', { timeZone: 'Asia/Tokyo' })
+      .replace(/[: ]/g, '-')
+    const outputPath = path.join(Transcription.OUTPUT_DIR, `${timestamp}.txt`)
+    fs.writeFileSync(outputPath, report, 'utf-8')
+    console.log(`[discord-whisper]Report saved to: ${outputPath}`)
   }
 
   public getGuildInProgress(guildId: string): boolean {
@@ -142,6 +174,31 @@ export default class Transcription extends BaseModule {
     const guildId = connection.joinConfig.guildId
     const session = this.getOrCreateGuildSession(guildId)
     session.option = option
+
+    console.log(
+      `[discord-whisper]start() called, connection state: ${connection.state.status}`,
+    )
+
+    connection.on('stateChange', (oldState, newState) => {
+      console.log(
+        `[discord-whisper]Connection state changed: ${oldState.status} -> ${newState.status}`,
+      )
+    })
+
+    connection.on('debug', (message) => {
+      console.log(`[discord-whisper][debug] ${message}`)
+    })
+
+    void entersState(connection, VoiceConnectionStatus.Ready, 30_000)
+      .then(() => {
+        console.log('[discord-whisper]Connection reached Ready state')
+      })
+      .catch(() => {
+        console.error(
+          '[discord-whisper]Connection failed to reach Ready state within 30s, destroying',
+        )
+        connection.destroy()
+      })
 
     connection.receiver.speaking.on('start', (userId) => {
       if (session.subscribedUsers.has(userId)) {
@@ -215,7 +272,8 @@ export default class Transcription extends BaseModule {
             session.queue.push({
               uuid: uuid,
               userId: userId,
-              sendChannelId: connection.joinConfig.channelId,
+              sendChannelId:
+                session.option.sendChannelId ?? connection.joinConfig.channelId,
               guildId: guildId,
             })
             if (!session.isQueueProcessing) await this.progressQueue(guildId)
@@ -266,21 +324,23 @@ export default class Transcription extends BaseModule {
         void (async (): Promise<void> => {
           if (session.queue.length === 0) {
             clearInterval(interval)
-            if (
-              connection.joinConfig.channelId &&
-              session.option.exportReport
-            ) {
+            const sendChannelId =
+              session.option.sendChannelId ?? connection.joinConfig.channelId
+            if (sendChannelId && session.option.exportReport) {
+              Transcription.ensureGuildTempDir(guildId)
               const reportPath = path.join(
                 Transcription.getGuildTempDir(guildId),
                 `report_${guildId}.txt`,
               )
               fs.writeFileSync(reportPath, session.report)
-              const channel = await this.client.channels.fetch(
-                connection.joinConfig.channelId,
+              Transcription.saveReportToOutput(
+                session.report,
+                session.sessionStartTime,
               )
+              const channel = await this.client.channels.fetch(sendChannelId)
               const attachment = new AttachmentBuilder(reportPath)
-              if (channel?.isVoiceBased()) {
-                await channel.send({
+              if (channel?.isTextBased()) {
+                await (channel as TextChannel).send({
                   content: '今回のレポート:',
                   files: [attachment],
                 })
@@ -288,7 +348,7 @@ export default class Transcription extends BaseModule {
             }
 
             if (
-              connection.joinConfig.channelId &&
+              sendChannelId &&
               session.option.exportAudio &&
               session.audioRecordings.length > 0
             ) {
@@ -297,12 +357,10 @@ export default class Transcription extends BaseModule {
                 session,
               )
               if (mergedAudioPath) {
-                const channel = await this.client.channels.fetch(
-                  connection.joinConfig.channelId,
-                )
+                const channel = await this.client.channels.fetch(sendChannelId)
                 const audioAttachment = new AttachmentBuilder(mergedAudioPath)
-                if (channel?.isVoiceBased()) {
-                  await channel
+                if (channel?.isTextBased()) {
+                  await (channel as TextChannel)
                     .send({
                       content: '録音ファイル:',
                       files: [audioAttachment],
@@ -365,7 +423,10 @@ export default class Transcription extends BaseModule {
       opusStream as unknown as NodeJS.ReadableStream,
       opusDecoder as unknown as NodeJS.WritableStream,
       out as unknown as NodeJS.WritableStream,
-    )
+    ).catch((err: unknown) => {
+      if ((err as NodeJS.ErrnoException).code !== 'ERR_STREAM_PREMATURE_CLOSE')
+        throw err
+    })
   }
 
   private async encodePcmToWav(guildId: string, uuid: string): Promise<void> {
@@ -425,11 +486,12 @@ export default class Transcription extends BaseModule {
   }
 
   private async fetchWebhook(channel: Channel): Promise<Webhook | undefined> {
-    if (!channel.isVoiceBased()) return
-    const webhooks = await channel.fetchWebhooks()
+    if (!channel.isTextBased()) return
+    const textChannel = channel as TextChannel
+    const webhooks = await textChannel.fetchWebhooks()
     return (
-      webhooks.find((v) => v.token) ??
-      (await channel.createWebhook({
+      webhooks.find((v: Webhook) => v.token) ??
+      (await textChannel.createWebhook({
         name: this.client.user?.username ?? 'Transcription Bot',
       }))
     )
@@ -474,7 +536,7 @@ export default class Transcription extends BaseModule {
           const channel = await this.client.channels.fetch(
             completedItem.sendChannelId,
           )
-          if (channel?.isVoiceBased()) {
+          if (channel?.isTextBased()) {
             const webhook = await this.fetchWebhook(channel)
             if (webhook) {
               await this.sendWebhookMessage(
@@ -487,8 +549,7 @@ export default class Transcription extends BaseModule {
         }
         if (session.option.exportReport) {
           const user = await this.client.users.fetch(completedItem.userId)
-          session.report += `User: ${user.displayName}(ID:${completedItem.userId})\n`
-          session.report += `Transcription: ${context}\n\n`
+          session.report += `${user.displayName}: ${context}\n`
         }
       }
     }

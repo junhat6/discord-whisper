@@ -5,9 +5,9 @@ import {
   GatewayIntentBits,
   HTTPError,
 } from 'discord.js'
-import { ModuleManager } from '@/lib/mopo-discordjs'
 import path from 'path'
 
+import { ModuleManager } from '@/lib/mopo-discordjs'
 import { env } from '@/utils/env'
 
 const options: ClientOptions = {

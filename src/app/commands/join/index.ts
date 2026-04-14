@@ -5,9 +5,9 @@ import {
 } from '@discordjs/voice'
 import { ApplicationCommandOptionType, PermissionFlagsBits } from 'discord.js'
 import { ChatInputCommandInteraction } from 'discord.js'
-import { ApplicationCommandData } from '@/lib/mopo-discordjs'
 
 import Transcription from '@/app/modules/transcription'
+import { ApplicationCommandData } from '@/lib/mopo-discordjs'
 
 export default {
   name: 'join',
@@ -97,6 +97,7 @@ export default {
       sendRealtimeMessage,
       exportReport,
       exportAudio,
+      sendChannelId: interaction.channelId,
     })
 
     await interaction.editReply({

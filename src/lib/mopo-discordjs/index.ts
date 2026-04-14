@@ -1,6 +1,6 @@
 import {
-  Client,
   ChatInputCommandInteraction,
+  Client,
   Interaction,
   PermissionResolvable,
   REST,
@@ -11,7 +11,7 @@ import path from 'path'
 
 export abstract class BaseModule {
   constructor(protected client: Client) {}
-  abstract init(): void
+  public abstract init(): void
 }
 
 export interface ApplicationCommandData<T extends BaseModule = BaseModule> {
@@ -19,7 +19,10 @@ export interface ApplicationCommandData<T extends BaseModule = BaseModule> {
   description: string
   defaultMemberPermissions?: PermissionResolvable
   options?: unknown[]
-  execute: (interaction: ChatInputCommandInteraction, module: T) => Promise<void>
+  execute: (
+    interaction: ChatInputCommandInteraction,
+    module: T,
+  ) => Promise<void>
 }
 
 type ImportFn = (fileUrl: string) => Promise<unknown>
@@ -33,10 +36,31 @@ export class ModuleManager {
     private importFn: ImportFn,
   ) {}
 
-  async init(basePath: string): Promise<void> {
+  public async init(basePath: string): Promise<void> {
     await this.loadModules(basePath)
     await this.loadCommands(basePath)
     await this.registerCommands()
+  }
+
+  public async interactionExecute(interaction: Interaction): Promise<void> {
+    if (!interaction.isChatInputCommand()) return
+
+    const command = this.commands.get(interaction.commandName)
+    if (!command) return
+
+    const module = this.modules.values().next().value
+    if (!module) throw new Error('[ModuleManager] No module loaded')
+
+    await command.execute(interaction, module)
+  }
+
+  public async clearCommands(): Promise<void> {
+    if (!this.client.token || !this.client.application?.id) return
+    const rest = new REST({ version: '10' }).setToken(this.client.token)
+    await rest.put(Routes.applicationCommands(this.client.application.id), {
+      body: [],
+    })
+    console.log('[ModuleManager] Cleared all commands')
   }
 
   private resolveIndexFile(dir: string): string | null {
@@ -111,30 +135,11 @@ export class ModuleManager {
     const rest = new REST({ version: '10' }).setToken(this.client.token)
     try {
       await rest.put(Routes.applicationCommands(appId), { body: commandData })
-      console.log(`[ModuleManager] Registered ${commandData.length} commands`)
+      console.log(
+        `[ModuleManager] Registered ${commandData.length.toString()} commands`,
+      )
     } catch (err) {
       console.error('[ModuleManager] Failed to register commands:', err)
     }
-  }
-
-  async interactionExecute(interaction: Interaction): Promise<void> {
-    if (!interaction.isChatInputCommand()) return
-
-    const command = this.commands.get(interaction.commandName)
-    if (!command) return
-
-    const module = this.modules.values().next().value
-    if (!module) throw new Error('[ModuleManager] No module loaded')
-
-    await command.execute(interaction, module)
-  }
-
-  async clearCommands(): Promise<void> {
-    if (!this.client.token || !this.client.application?.id) return
-    const rest = new REST({ version: '10' }).setToken(this.client.token)
-    await rest.put(Routes.applicationCommands(this.client.application.id), {
-      body: [],
-    })
-    console.log('[ModuleManager] Cleared all commands')
   }
 }

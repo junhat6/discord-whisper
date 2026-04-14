@@ -1,9 +1,9 @@
 import { getVoiceConnection } from '@discordjs/voice'
 import { PermissionFlagsBits } from 'discord.js'
 import { ChatInputCommandInteraction } from 'discord.js'
-import { ApplicationCommandData } from '@/lib/mopo-discordjs'
 
 import Transcription from '@/app/modules/transcription'
+import { ApplicationCommandData } from '@/lib/mopo-discordjs'
 
 export default {
   name: 'leave',
