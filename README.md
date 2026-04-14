@@ -39,6 +39,8 @@ OpenAI-WhisperをつかってDiscordの音声通話の文字起こしをするBo
    - Windows: [公式サイト](https://ffmpeg.org/download.html)からダウンロードしてPATHに追加
    - macOS: `brew install ffmpeg`
    - Linux: `sudo apt install ffmpeg` または `sudo yum install ffmpeg`
+3. **cmake**
+   - macOS: `brew install cmake`
 
 ### Environment Variables
 
