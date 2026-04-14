@@ -320,65 +320,68 @@ export default class Transcription extends BaseModule {
 
       session.subscribedUsers.clear()
 
-      const interval = setInterval(() => {
-        void (async (): Promise<void> => {
-          if (session.queue.length === 0) {
-            clearInterval(interval)
-            const sendChannelId =
-              session.option.sendChannelId ?? connection.joinConfig.channelId
-            if (sendChannelId && session.option.exportReport) {
-              Transcription.ensureGuildTempDir(guildId)
-              const reportPath = path.join(
-                Transcription.getGuildTempDir(guildId),
-                `report_${guildId}.txt`,
-              )
-              fs.writeFileSync(reportPath, session.report)
-              Transcription.saveReportToOutput(
-                session.report,
-                session.sessionStartTime,
-              )
-              const channel = await this.client.channels.fetch(sendChannelId)
-              const attachment = new AttachmentBuilder(reportPath)
-              if (channel?.isTextBased()) {
-                await (channel as TextChannel).send({
-                  content: '今回のレポート:',
-                  files: [attachment],
-                })
-              }
-            }
+      void (async (): Promise<void> => {
+        await this.waitForQueueEmpty(session)
 
-            if (
-              sendChannelId &&
-              session.option.exportAudio &&
-              session.audioRecordings.length > 0
-            ) {
-              const mergedAudioPath = await this.mergeAudioFiles(
-                guildId,
-                session,
-              )
-              if (mergedAudioPath) {
-                const channel = await this.client.channels.fetch(sendChannelId)
-                const audioAttachment = new AttachmentBuilder(mergedAudioPath)
-                if (channel?.isTextBased()) {
-                  await (channel as TextChannel)
-                    .send({
-                      content: '録音ファイル:',
-                      files: [audioAttachment],
-                    })
-                    .catch(() => undefined)
-                }
-              }
-            }
-            console.log('[discord-whisper]Queue is empty, stopping interval')
-
-            if (session.onCompleteCallback) await session.onCompleteCallback()
-
-            this.cleanupTempFiles(guildId)
-            this.guildSessions.delete(guildId)
-            return
+        const sendChannelId =
+          session.option.sendChannelId ?? connection.joinConfig.channelId
+        if (sendChannelId && session.option.exportReport) {
+          Transcription.ensureGuildTempDir(guildId)
+          const reportPath = path.join(
+            Transcription.getGuildTempDir(guildId),
+            `report_${guildId}.txt`,
+          )
+          fs.writeFileSync(reportPath, session.report)
+          Transcription.saveReportToOutput(
+            session.report,
+            session.sessionStartTime,
+          )
+          const channel = await this.client.channels.fetch(sendChannelId)
+          const attachment = new AttachmentBuilder(reportPath)
+          if (channel?.isTextBased()) {
+            await (channel as TextChannel).send({
+              content: '今回のレポート:',
+              files: [attachment],
+            })
           }
-        })()
-      }, 1000)
+        }
+
+        if (
+          sendChannelId &&
+          session.option.exportAudio &&
+          session.audioRecordings.length > 0
+        ) {
+          const mergedAudioPath = await this.mergeAudioFiles(guildId, session)
+          if (mergedAudioPath) {
+            const channel = await this.client.channels.fetch(sendChannelId)
+            const audioAttachment = new AttachmentBuilder(mergedAudioPath)
+            if (channel?.isTextBased()) {
+              await (channel as TextChannel)
+                .send({
+                  content: '録音ファイル:',
+                  files: [audioAttachment],
+                })
+                .catch(() => undefined)
+            }
+          }
+        }
+        console.log('[discord-whisper]Queue is empty, cleanup started')
+
+        if (session.onCompleteCallback) await session.onCompleteCallback()
+
+        this.cleanupTempFiles(guildId)
+        this.guildSessions.delete(guildId)
+      })()
+    })
+  }
+
+  private waitForQueueEmpty(session: GuildSession): Promise<void> {
+    return new Promise((resolve) => {
+      const check = (): void => {
+        if (session.queue.length === 0 && !session.isQueueProcessing) resolve()
+        else setTimeout(check, 100)
+      }
+      check()
     })
   }
 
@@ -567,9 +570,8 @@ export default class Transcription extends BaseModule {
       return false
     }
 
-    const stats = fs.statSync(pcmFilePath)
-    const fileSizeInBytes = stats.size
-    const durationInSeconds = fileSizeInBytes / (48000 * 2 * 2) // 48kHz, 2 channels, 2 bytes per sample
+    const pcmData = fs.readFileSync(pcmFilePath)
+    const durationInSeconds = pcmData.length / (48000 * 2 * 2) // 48kHz, 2 channels, 2 bytes per sample
 
     if (durationInSeconds < 0.5) {
       console.warn(
@@ -585,14 +587,14 @@ export default class Transcription extends BaseModule {
       return false
     }
 
-    if (!this.hasValidAudioLevel(pcmFilePath)) {
+    if (!this.hasValidAudioLevel(pcmData)) {
       console.warn(
         `[discord-whisper]PCM file has insufficient audio level: ${pcmFilePath}`,
       )
       return false
     }
 
-    if (!this.detectVoiceActivity(pcmFilePath, durationInSeconds)) {
+    if (!this.detectVoiceActivity(pcmData, durationInSeconds)) {
       console.warn(
         `[discord-whisper]No voice activity detected: ${pcmFilePath}`,
       )
@@ -605,9 +607,8 @@ export default class Transcription extends BaseModule {
     return true
   }
 
-  private hasValidAudioLevel(pcmFilePath: string): boolean {
+  private hasValidAudioLevel(pcmData: Buffer): boolean {
     try {
-      const pcmData = fs.readFileSync(pcmFilePath)
       let sumSquared = 0
       let maxAmplitude = 0
       const sampleCount = pcmData.length / 2 // 16-bit samples
@@ -639,11 +640,10 @@ export default class Transcription extends BaseModule {
   }
 
   private detectVoiceActivity(
-    pcmFilePath: string,
+    pcmData: Buffer,
     durationInSeconds: number,
   ): boolean {
     try {
-      const pcmData = fs.readFileSync(pcmFilePath)
       const sampleRate = 48000
       const channels = 2
       const frameSize = Math.floor(sampleRate * 0.025) * channels * 2 // 25ms frames
